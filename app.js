@@ -1,6 +1,6 @@
 /* =========================================================
    CITATION BUILDER
-   Version 0.6
+   Version 0.7 — Core Sources
 
    Architecture:
    SOURCE TYPE SCHEMA
@@ -532,15 +532,10 @@ SOURCE_TYPES.website = {
         websiteDateGroup('accessDate','Access Date','Optional in MLA. Chicago requires an access date when no publication or revision date is given.')
     ]
 };
-function getMLATitleHTML(source, title) {
-    return source.type === 'website' ? '“' + escapeHTML(title) + '”' : '<em>' + escapeHTML(title) + '</em>';
-}
-function getMLATitlePlain(source, title) { return source.type === 'website' ? '“' + title + '”' : title; }
+
+
 function websiteResult(plain, html = escapeHTML(plain)) { return {plain, html}; }
-function websiteAuthor(source, inverted = false) {
-    const first = clean(source.author?.first), last = clean(source.author?.last);
-    return inverted && first && last ? last + ', ' + first : [first,last].filter(Boolean).join(' ');
-}
+
 function formatMLAWebsite(source) {
     if (!clean(source.title)) return websiteResult('');
     const author = websiteAuthor(source,true);
@@ -912,7 +907,7 @@ function buildSourceTypeOptions() {
    DYNAMIC FORM RENDERER
 ========================================================= */
 
-function renderSourceForm(
+function legacyRenderSourceForm(
     sourceData = null
 ) {
 
@@ -1307,7 +1302,7 @@ function attachDynamicFieldEvents() {
    READ DYNAMIC FORM
 ========================================================= */
 
-function getCurrentSource() {
+function legacyGetCurrentSource() {
 
     const source = {
 
@@ -1399,7 +1394,7 @@ function validateSource(source) {
     );
 
 
-    if (source.type === 'website') {
+    if (['website','journal','video'].includes(source.type)) {
         for (const key of ['publicationDate', 'accessDate']) {
             const date = source[key] || {};
             const day = clean(date.day), month = clean(date.month), year = clean(date.year);
@@ -1414,8 +1409,10 @@ function validateSource(source) {
             try { const url = new URL(source.url); if (!['http:', 'https:'].includes(url.protocol)) throw new Error(); }
             catch { missing.push('valid URL beginning with https:// or http://'); }
         }
-        if (citationStyleSelect.value === 'chicago18' && !formatWebsiteDate(source.publicationDate) && !formatWebsiteDate(source.accessDate)) missing.push('access date for an undated Chicago webpage');
+        if (source.type === 'website' && citationStyleSelect.value === 'chicago18' && !formatWebsiteDate(source.publicationDate) && !formatWebsiteDate(source.accessDate)) missing.push('access date for an undated Chicago webpage');
     }
+    if (source.type === "journal" && !formatWebsiteDate(source.publicationDate)) missing.push("publication year");
+    if (source.doi && !/^10\.\d{4,9}\/\S+$/i.test(clean(source.doi).replace(/^(?:https?:\/\/(?:dx\.)?doi\.org\/|doi:\s*)/i,""))) missing.push("valid DOI (10.xxxx/...) ");
     return missing;
 
 }
@@ -1438,28 +1435,7 @@ function normalizeForComparison(value) {
 }
 
 
-function getAuthorKey(source) {
 
-    const last =
-        normalizeForComparison(
-            source.author?.last
-        );
-
-
-    const first =
-        normalizeForComparison(
-            source.author?.first
-        );
-
-
-    if (!last && !first) {
-        return "";
-    }
-
-
-    return `${last}|${first}`;
-
-}
 
 
 function getCitationContext(
@@ -1560,7 +1536,7 @@ function getShortTitle(source) {
    MLA — BOOK
 ========================================================= */
 
-function formatMLABook(source) {
+function legacyFormatMLABook(source) {
 
     const htmlParts = [];
     const plainParts = [];
@@ -1742,132 +1718,14 @@ function formatMLABook(source) {
    MLA — IN-TEXT
 ========================================================= */
 
-function formatMLAInText(
-    source,
-    page,
-    allSources = []
-) {
-    if (source.type === 'website') page = ''; 
 
-    const context =
-        getCitationContext(
-            source,
-            allSources
-        );
-
-
-    let plain = "";
-    let html = "";
-
-
-    /* AUTHOR */
-
-    if (
-        source.author?.last ||
-        source.author?.first
-    ) {
-
-        const author =
-            source.author.last ||
-            source.author.first;
-
-
-        plain =
-            author;
-
-
-        html =
-            escapeHTML(author);
-
-
-        /*
-            Multiple works by the same author require
-            the title to distinguish the source.
-        */
-
-        if (
-            context.authorHasMultipleWorks &&
-            source.title
-        ) {
-
-            const shortTitle =
-                getShortTitle(source);
-
-
-            plain +=
-                `, ${getMLATitlePlain(source, shortTitle)}`;
-
-
-            html +=
-                `, ${getMLATitleHTML(source, shortTitle)}`;
-
-        }
-
-    }
-
-
-    /* NO AUTHOR */
-
-    else if (source.title) {
-
-        const shortTitle =
-            getShortTitle(source);
-
-
-        plain = getMLATitlePlain(source, shortTitle);
-
-
-        html =
-            getMLATitleHTML(source, shortTitle);
-
-    }
-
-
-    else {
-
-        return {
-            html: "",
-            plain: ""
-        };
-
-    }
-
-
-    /* PAGE */
-
-    if (page) {
-
-        plain +=
-            ` ${page}`;
-
-
-        html +=
-            ` ${escapeHTML(page)}`;
-
-    }
-
-
-    plain =
-        `(${plain})`;
-
-
-    html =
-        `(${html})`;
-
-
-    return {
-        html,
-        plain
-    };
-
-}
 
 
 /* =========================================================
    CHICAGO — BOOK BIBLIOGRAPHY
 ========================================================= */
 
-function formatChicagoBookBibliography(
+function legacyFormatChicagoBookBibliography(
     source
 ) {
 
@@ -2053,7 +1911,7 @@ function formatChicagoBookBibliography(
    CHICAGO — FIRST FOOTNOTE
 ========================================================= */
 
-function formatChicagoFirstFootnote(
+function legacyFormatChicagoFirstFootnote(
     source,
     page
 ) {
@@ -2197,87 +2055,7 @@ function formatChicagoFirstFootnote(
    CHICAGO — SHORT FOOTNOTE
 ========================================================= */
 
-function formatChicagoShortFootnote(
-    source,
-    page
-) {
-    if (source.type === 'website') return formatChicagoWebsite(source,'short');
 
-    const htmlParts = [];
-    const plainParts = [];
-
-
-    const author =
-        source.author?.last ||
-        source.author?.first ||
-        "";
-
-
-    if (author) {
-
-        htmlParts.push(
-            escapeHTML(author)
-        );
-
-
-        plainParts.push(
-            author
-        );
-
-    }
-
-
-    if (source.title) {
-
-        const shortTitle =
-            getShortTitle(source);
-
-
-        htmlParts.push(
-            `<em>${escapeHTML(
-                shortTitle
-            )}</em>`
-        );
-
-
-        plainParts.push(
-            shortTitle
-        );
-
-    }
-
-
-    let html =
-        htmlParts.join(", ");
-
-
-    let plain =
-        plainParts.join(", ");
-
-
-    if (page) {
-
-        html +=
-            `, ${escapeHTML(page)}`;
-
-
-        plain +=
-            `, ${page}`;
-
-    }
-
-
-    return {
-
-        html:
-            ensureHTMLPeriod(html),
-
-        plain:
-            ensurePeriod(plain)
-
-    };
-
-}
 
 
 /* =========================================================
@@ -2539,7 +2317,7 @@ function getEffectiveCitationCollection(source) {
    LIVE PREVIEW
 ========================================================= */
 
-function updatePreview() {
+function legacyUpdatePreview() {
     document.getElementById('pageNumberPanel').hidden = getActiveCitationSource().type === 'website';
 
     const source =
@@ -3131,19 +2909,7 @@ function getSourceDisplayName(source) {
    SORTING
 ========================================================= */
 
-function getSortKey(source) {
-    if (source.type === 'website' && citationStyleSelect.value === 'chicago18') {
-        return (websiteAuthor(source,true) || clean(source.publisher) || clean(source.websiteName) || clean(source.title)).toLowerCase();
-    }
 
-    return (
-        source.author?.last ||
-        source.author?.first ||
-        source.title ||
-        ""
-    ).toLowerCase();
-
-}
 
 
 /* =========================================================
@@ -3982,6 +3748,159 @@ clearBibliographyButton.addEventListener(
 /* =========================================================
    INITIALIZE
 ========================================================= */
+
+// Core Sources v0.7. Guidance: style.mla.org and CMOS 18 Citation Quick Guide.
+function authorsOf(s) {
+    const list = Array.isArray(s.authors) ? s.authors : s.authors ? Object.values(s.authors) : [s.author || {}];
+    return list.filter(a => clean(a.first) || clean(a.last) || clean(a.literal));
+}
+function personName(a, invert = false, short = false) {
+    if (a.literal) return clean(a.literal);
+    if (short) return clean(a.last) || clean(a.first);
+    return invert && a.first && a.last ? clean(a.last) + ', ' + clean(a.first) : [clean(a.first), clean(a.last)].filter(Boolean).join(' ');
+}
+function authorNames(s, style = 'mla', mode = 'bibliography') {
+    const a = authorsOf(s), short = mode === 'short', bib = mode === 'bibliography';
+    if (!a.length) return '';
+    const names = a.map((p,i) => personName(p,bib && i === 0,short));
+    if ((style === 'mla' || !bib) && a.length > 2) return names[0] + (bib ? ', et al.' : ' et al.');
+    if (style === 'chicago' && bib && a.length > 6) return names.slice(0,3).join(', ') + ', et al.';
+    return names.length === 1 ? names[0] : names.length === 2 ? names.join(bib ? ', and ' : ' and ') : names.slice(0,-1).join(', ') + ', and ' + names.at(-1);
+}
+function websiteAuthor(s, inverted = false) { return authorNames(s,citationStyleSelect.value === 'chicago18' ? 'chicago' : 'mla',inverted ? 'bibliography' : 'full'); }
+function getAuthorKey(s) { return normalizeForComparison(s.type === 'video' ? clean(s.creator) : authorNames(s,'mla','short')); }
+function getMLATitleHTML(s,t) { return s.type === 'book' ? '<em>' + escapeHTML(t) + '</em>' : '“' + escapeHTML(t) + '”'; }
+function getMLATitlePlain(s,t) { return s.type === 'book' ? t : '“' + t + '”'; }
+const authorGroup = {legend:'Authors',help:'Keep the order printed on the source. Leave blank when no author is named. For an organization, enter its complete name in Last Name.',fields:[]};
+SOURCE_TYPES.book.groups[0] = authorGroup;
+SOURCE_TYPES.website.groups[0] = authorGroup;
+SOURCE_TYPES.journal = {label:'Journal Article',instructionTitle:'Using a journal article?',instruction:'Use the article itself or its journal record. The article’s complete page range belongs in the bibliography; the page you cite belongs in the locator below.',groups:[authorGroup,
+    {legend:'Article and Journal',fields:[websiteField('title','Article Title',true),websiteField('journalTitle','Journal Title',true)]},
+    {legend:'Journal Details',fields:[websiteField('volume','Volume'),websiteField('issue','Issue'),websiteField('pages','Complete Page Range / Article ID')]},
+    websiteDateGroup('publicationDate','Publication Date','Enter the year and, when provided, month and day. Use the journal issue date.'),
+    {legend:'Online Location',help:'Prefer the DOI. Add a database only if it actually contains the article you consulted. Chicago uses the database when no DOI or URL is supplied; MLA treats it as a second container.',fields:[websiteField('doi','DOI'),websiteField('url','URL',false,'url'),websiteField('database','Database (if used)')]}
+]};
+SOURCE_TYPES.video = {label:'Video',instructionTitle:'Using an online video?',instruction:'Copy the video title and date from its page. Enter a primary creator only when clearly credited; a channel or organization can be the creator. Otherwise leave Creator blank and identify the uploader.',groups:[
+    {legend:'Video',fields:[websiteField('title','Video Title',true),websiteField('creator','Primary Creator / Organization'),websiteField('uploader','Uploader / Channel'),websiteField('platform','Platform',true)]},
+    websiteDateGroup('publicationDate','Publication / Upload Date','Use the date displayed for this video. Leave blank if unavailable.'),
+    {legend:'Location',fields:[websiteField('url','URL',true,'url'),websiteField('duration','Duration (optional, e.g. 12:35)')]}
+]};
+function renderSourceForm(data = null, rowCount = 0) {
+    const type = sourceTypeSelect.value;
+    if (type !== 'video' && SOURCE_TYPES[type]) {
+        const authors = authorsOf(data || {});
+        const count = Math.max(1,authors.length,rowCount);
+        SOURCE_TYPES[type].groups[0] = {...authorGroup,fields:Array.from({length:count},(_,i) => [websiteField('authors.'+i+'.first','Author '+(i+1)+' — First Name'),websiteField('authors.'+i+'.last','Author '+(i+1)+' — Last Name')]).flat()};
+        data = {...(data || {}),authors:authors.length ? authors : [{}]};
+    }
+    legacyRenderSourceForm(data);
+    if (type !== 'video') {
+        const button = document.createElement('button');
+        button.id = 'addAuthorButton'; button.type = 'button'; button.className = 'small-button'; button.textContent = 'Add Another Author';
+        button.addEventListener('click',() => {
+            const current = getCurrentSource();
+            // Keep blank rows as well as completed author rows.
+            const count = SOURCE_TYPES[type].groups[0].fields.length / 2;
+            current.authors = Array.from({length:count+1},(_,i) => current.authors[i] || {});
+            renderSourceForm(current,count+1); citedSource = null; citingNotice.hidden = true; updatePreview();
+        });
+        sourceFields.children[0].appendChild(button);
+    }
+}
+function getCurrentSource() {
+    const s = legacyGetCurrentSource();
+    if (s.type !== 'video') { s.authors = authorsOf(s); s.author = s.authors[0] || {}; }
+    return s;
+}
+function replaceAuthor(result,old,newName) {
+    if (!old) return newName ? {plain:ensurePeriod(newName)+' '+result.plain,html:escapeHTML(ensurePeriod(newName))+' '+result.html} : result;
+    return {plain:result.plain.replace(old,newName),html:result.html.replace(escapeHTML(old),escapeHTML(newName))};
+}
+function formatMLABook(s) { const a=authorsOf(s)[0]||{}; return replaceAuthor(legacyFormatMLABook({...s,author:a}),personName(a,true),authorNames(s)); }
+function formatChicagoBookBibliography(s) { const a=authorsOf(s)[0]||{}; return replaceAuthor(legacyFormatChicagoBookBibliography({...s,author:a}),personName(a,true),authorNames(s,'chicago')); }
+function resultHTML(html) { const plain = html.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#039;/g,"'"); return {html,plain}; }
+function quoted(t,punctuation='.') { const text=clean(t).replace(/[.,]$/,''); return '“'+escapeHTML(/[!?]$/.test(text) ? text : text+punctuation)+'”'; }
+function doiURL(s) { const d=clean(s.doi).replace(/^(?:https?:\/\/(?:dx\.)?doi\.org\/|doi:\s*)/i,''); return d ? 'https://doi.org/'+d : clean(s.url); }
+function pageRange(p) { return clean(p).replace(/(\d)\s*-\s*(\d)/g,'$1–$2'); }
+function formatMLAJournal(s) {
+    if (!s.title) return {html:'',plain:''};
+    const a=authorNames(s), parts=['<em>'+escapeHTML(s.journalTitle)+'</em>'];
+    if(s.volume) parts.push('vol. '+escapeHTML(s.volume)); if(s.issue) parts.push('no. '+escapeHTML(s.issue));
+    const date=formatWebsiteDate(s.publicationDate,true); if(date) parts.push(escapeHTML(date));
+    if(s.pages) parts.push((/^\d+(?:\s*[-–]\s*\d+)?$/.test(s.pages) ? (/[-–]/.test(s.pages)?'pp. ':'p. ') : '')+escapeHTML(pageRange(s.pages)));
+    let html=(a?escapeHTML(ensurePeriod(a))+' ':'')+quoted(s.title)+' '+parts.join(', ')+'.';
+    const location=doiURL(s);
+    if(s.database) html+=' <em>'+escapeHTML(s.database)+'</em>'+(location?', '+escapeHTML(location):'')+'.';
+    else if(location) html=html.slice(0,-1)+', '+escapeHTML(location)+'.';
+    return resultHTML(html);
+}
+function formatChicagoJournal(s,mode='bibliography',page='') {
+    if(!s.title) return {html:'',plain:''};
+    const bib=mode==='bibliography', a=authorNames(s,'chicago',mode);
+    let html=(a?escapeHTML(bib?ensurePeriod(a):a+',')+' ':'')+quoted(s.title,bib?'.':',')+' <em>'+escapeHTML(s.journalTitle)+'</em>';
+    if(s.volume) html+=' '+escapeHTML(s.volume); if(s.issue) html+=', no. '+escapeHTML(s.issue);
+    const date=formatWebsiteDate(s.publicationDate); if(date) html+=' ('+escapeHTML(date)+')';
+    const pages=bib?s.pages:page; if(pages) html+=': '+escapeHTML(pageRange(pages));
+    const loc=doiURL(s)||clean(s.database); html+=bib?'.':(loc?',':'.'); if(loc) html+=' '+escapeHTML(loc)+(bib?'.':'.');
+    return resultHTML(html);
+}
+function formatMLAVideo(s) {
+    if(!s.title) return {html:'',plain:''};
+    const parts=['<em>'+escapeHTML(s.platform)+'</em>'];
+    if(s.uploader && normalizeForComparison(s.uploader)!==normalizeForComparison(s.creator)) parts.push('uploaded by '+escapeHTML(s.uploader));
+    const date=formatWebsiteDate(s.publicationDate,true); if(date)parts.push(escapeHTML(date)); if(s.url)parts.push(escapeHTML(s.url.replace(/^https?:\/\//i,'')));
+    return resultHTML((s.creator?escapeHTML(ensurePeriod(s.creator))+' ':'')+quoted(s.title)+' '+parts.join(', ')+'.');
+}
+function formatChicagoVideo(s,mode='bibliography',page='') {
+    if(!s.title) return {html:'',plain:''};
+    const bib=mode==='bibliography',lead=clean(s.creator),date=formatWebsiteDate(s.publicationDate);
+    const parts=[]; if(s.uploader && s.uploader!==lead) parts.push((date?'posted '+date+', ':'posted ')+'by '+s.uploader); else if(date)parts.push(date);
+    if(s.platform)parts.push(s.platform); parts.push('video'+(s.duration?', '+s.duration:'')); if(page&&!bib)parts.push('at '+pageRange(page)); if(s.url)parts.push(s.url);
+    return resultHTML((lead?escapeHTML(bib?ensurePeriod(lead):lead+',')+' ':'')+quoted(s.title,bib?'.':',')+' '+escapeHTML(parts.join(bib?'. ':', '))+'.');
+}
+function formatChicagoFirstFootnote(s,p) {
+    if(s.type==='journal')return formatChicagoJournal(s,'full',p);
+    if(s.type==='video')return formatChicagoVideo(s,'full',p);
+    if(s.type==='website')return formatChicagoWebsite(s,'full');
+    const a=authorsOf(s)[0]||{};
+    let r=replaceAuthor(legacyFormatChicagoFirstFootnote({...s,author:a},p),personName(a),authorNames(s,'chicago','full'));
+    const details=[s.translator?'trans. '+s.translator:'',s.edition?normalizeEdition(s.edition):''].filter(Boolean).join(', ');
+    if(details) {const title=getFullTitle(s);r={plain:r.plain.replace(title,title+', '+details),html:r.html.replace('</em>','</em>, '+escapeHTML(details))};} return r;
+}
+function formatChicagoShortFootnote(s,p) {
+    const lead=s.type==='video'?clean(s.creator):authorNames(s,'chicago','short');
+    if(!s.title)return {html:'',plain:''};
+    const locator=p&&s.type!=='website';
+    const title=s.type==='book'?'<em>'+escapeHTML(getShortTitle(s))+'</em>':quoted(getShortTitle(s),locator?'':'.');
+    return resultHTML((lead?escapeHTML(lead)+', ':'')+title+(locator?', '+(s.type==='video'?'at ':'')+escapeHTML(pageRange(p)):'' )+(s.type==='book'||locator?'.':''));
+}
+function formatMLAInText(s,p,all=[]) {
+    if(!s.title)return {html:'',plain:''};
+    if(s.type==='website')p='';
+    const lead=s.type==='video'?clean(s.creator):authorNames(s,'mla','short');
+    const context=getCitationContext(s,all);
+    let html=lead?escapeHTML(lead):getMLATitleHTML(s,getShortTitle(s));
+    if(lead&&context.authorHasMultipleWorks)html+=', '+getMLATitleHTML(s,getShortTitle(s));
+    if(context.authorHasDuplicateTitle) {const d=s.year||formatWebsiteDate(s.publicationDate,true)||s.publisher||s.platform; if(d)html+=', '+escapeHTML(d);}
+    if(p)html+=' '+escapeHTML(pageRange(p)); return resultHTML('('+html+')');
+}
+function getSortKey(s) {
+    let lead=s.type==='video'?clean(s.creator):personName(authorsOf(s)[0]||{},true);
+    if(s.type==='website'&&citationStyleSelect.value==='chicago18')lead=lead||s.publisher||s.websiteName;
+    return normalizeForComparison(lead||removeInitialArticle(s.title))+' '+normalizeForComparison(removeInitialArticle(s.title));
+}
+function updatePreview() {
+    legacyUpdatePreview();
+    const type=getActiveCitationSource().type;
+    pageNumberInput.placeholder=type==='video'?'e.g. 2:15–2:40':'e.g. 42';
+    document.querySelector('label[for="pageNumber"]').textContent=type==='video'?'Timestamp / Time Range':'Page Number / Page Range';
+    pageNumberHelp.textContent='Enter the page containing the information you used. This locator is not included in the bibliography.';
+    if(type==='video')pageNumberHelp.textContent='Enter the time of the passage you used, such as 2:15 or 2:15–2:40. Leave blank when citing the whole video.';
+}
+FORMATTERS.mla9.journal=formatMLAJournal;
+FORMATTERS.mla9.video=formatMLAVideo;
+FORMATTERS.chicago18.journal=s=>formatChicagoJournal(s);
+FORMATTERS.chicago18.video=s=>formatChicagoVideo(s);
 
 buildSourceTypeOptions();
 

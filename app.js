@@ -1,6 +1,6 @@
 /* =========================================================
    CITATION BUILDER
-   Version 0.51
+   Version 0.6
 
    Architecture:
    SOURCE TYPE SCHEMA
@@ -17,6 +17,7 @@
 
    Current source types:
    - Book
+   - Website / Web Page
 
    Current styles:
    - MLA 9
@@ -493,6 +494,104 @@ const SOURCE_TYPES = {
 /* =========================================================
    BASIC HELPERS
 ========================================================= */
+
+
+// Website data uses the same raw-source storage and dynamic form as books.
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MLA_MONTH_NAMES = ['Jan.','Feb.','Mar.','Apr.','May','June','July','Aug.','Sept.','Oct.','Nov.','Dec.'];
+function monthIndex(value) {
+    const text = clean(value).toLowerCase().replace(/\./g, '');
+    if (/^\d+$/.test(text)) return Number(text) - 1;
+    return MONTH_NAMES.findIndex(month => month.toLowerCase() === text || month.slice(0,3).toLowerCase() === text || (month === 'September' && text === 'sept'));
+}
+function formatWebsiteDate(date, mla = false) {
+    if (!date) return '';
+    const index = monthIndex(date.month);
+    const month = index >= 0 && index < 12 ? (mla ? MLA_MONTH_NAMES : MONTH_NAMES)[index] : clean(date.month);
+    const day = clean(date.day), year = clean(date.year);
+    if (mla) return [day, month, year].filter(Boolean).join(' ');
+    return month && day ? month + ' ' + day + (year ? ', ' + year : '') : [month, year].filter(Boolean).join(' ');
+}
+function websiteField(key, label, required = false, type = 'text') { return {key, label, required, type}; }
+function websiteDateGroup(key, legend, help) {
+    return {legend, help, fields: [
+        {...websiteField(key + '.day', 'Day', false, 'number'), min:1, max:31},
+        {...websiteField(key + '.month', 'Month'), placeholder:'March'},
+        {...websiteField(key + '.year', 'Year', false, 'number'), min:1000, max:9999}
+    ]};
+}
+SOURCE_TYPES.website = {
+    label:'Website / Web Page', instructionTitle:'Using a website?',
+    instruction:'Cite the specific page or article you used. Look near the title for its author and date, and check the site for its name and publisher or sponsor.',
+    groups:[
+        {legend:'Author', help:'Enter the individual who wrote this page. If no person is named, leave these fields blank. The publisher or sponsor is not automatically the author.', fields:[websiteField('author.first','First Name'),websiteField('author.last','Last Name')]},
+        {legend:'Page or Article', fields:[websiteField('title','Page / Article Title',true)]},
+        {legend:'Website', fields:[websiteField('websiteName','Website Name',true),websiteField('publisher','Publisher / Sponsor')]},
+        websiteDateGroup('publicationDate','Publication Date','Use the date for this page, not the site-wide copyright year. Leave blank if unavailable. Enter a full month name or month number.'),
+        {legend:'Location',fields:[websiteField('url','URL',true,'url')]},
+        websiteDateGroup('accessDate','Access Date','Optional in MLA. Chicago requires an access date when no publication or revision date is given.')
+    ]
+};
+function getMLATitleHTML(source, title) {
+    return source.type === 'website' ? '“' + escapeHTML(title) + '”' : '<em>' + escapeHTML(title) + '</em>';
+}
+function getMLATitlePlain(source, title) { return source.type === 'website' ? '“' + title + '”' : title; }
+function websiteResult(plain, html = escapeHTML(plain)) { return {plain, html}; }
+function websiteAuthor(source, inverted = false) {
+    const first = clean(source.author?.first), last = clean(source.author?.last);
+    return inverted && first && last ? last + ', ' + first : [first,last].filter(Boolean).join(' ');
+}
+function formatMLAWebsite(source) {
+    if (!clean(source.title)) return websiteResult('');
+    const author = websiteAuthor(source,true);
+    let plain = (author ? ensurePeriod(author) + ' ' : '') + '“' + ensurePeriod(clean(source.title)) + '”';
+    let html = escapeHTML(plain);
+    const parts = [], htmlParts = [];
+    if (clean(source.websiteName)) { parts.push(clean(source.websiteName)); htmlParts.push('<em>' + escapeHTML(clean(source.websiteName)) + '</em>'); }
+    if (clean(source.publisher) && normalizeForComparison(source.publisher) !== normalizeForComparison(source.websiteName)) { parts.push(clean(source.publisher)); htmlParts.push(escapeHTML(clean(source.publisher))); }
+    const date = formatWebsiteDate(source.publicationDate,true);
+    if (date) { parts.push(date); htmlParts.push(escapeHTML(date)); }
+    const url = clean(source.url).replace(/^https?:\/\//i,'');
+    if (url) { parts.push(url); htmlParts.push(escapeHTML(url)); }
+    if (parts.length) { plain += ' ' + ensurePeriod(parts.join(', ')); html += ' ' + ensureHTMLPeriod(htmlParts.join(', ')); }
+    const access = formatWebsiteDate(source.accessDate,true);
+    if (access) { plain += ' Accessed ' + ensurePeriod(access); html += ' Accessed ' + escapeHTML(ensurePeriod(access)); }
+    return {plain,html};
+}
+function formatChicagoWebsite(source, mode) {
+    if (!clean(source.title)) return websiteResult('');
+    const author = websiteAuthor(source, mode === 'bibliography');
+    const owner = clean(source.publisher) || clean(source.websiteName);
+    const website = clean(source.websiteName);
+    const date = formatWebsiteDate(source.publicationDate);
+    const access = formatWebsiteDate(source.accessDate);
+    if (mode === 'short') {
+        const lead = clean(source.author?.last) || clean(source.author?.first);
+        return websiteResult((lead ? lead + ', ' : '') + '“' + ensurePeriod(getShortTitle(source)) + '”');
+    }
+    if (mode === 'bibliography') {
+        const parts = [];
+        if (author || owner) parts.push(ensurePeriod(author || owner));
+        parts.push('“' + ensurePeriod(clean(source.title)) + '”');
+        if (website && normalizeForComparison(website) !== normalizeForComparison(author || owner)) parts.push(ensurePeriod(website));
+        if (author && clean(source.publisher) && normalizeForComparison(source.publisher) !== normalizeForComparison(website)) parts.push(ensurePeriod(clean(source.publisher)));
+        if (date) parts.push(ensurePeriod(date));
+        else if (access) parts.push('Accessed ' + ensurePeriod(access));
+        if (clean(source.url)) parts.push(ensurePeriod(clean(source.url)));
+        return websiteResult(parts.join(' '));
+    }
+    const parts = [];
+    if (author) parts.push(author);
+    parts.push('“' + clean(source.title).replace(/[.,]$/, '') + ',”');
+    // A generic, unsigned webpage starts with the page title in a note.
+    const tail = [];
+    if (website && normalizeForComparison(website) !== normalizeForComparison(owner)) tail.push(website);
+    if (owner) tail.push(owner);
+    if (date) tail.push(date); else if (access) tail.push('accessed ' + access);
+    if (clean(source.url)) tail.push(clean(source.url));
+    return websiteResult(ensurePeriod((author ? author + ', ' : '') + parts[parts.length - 1] + (tail.length ? ' ' + tail.join(', ') : '')));
+}
+function formatChicagoWebsiteBibliography(source) { return formatChicagoWebsite(source,'bibliography'); }
 
 function clean(value) {
 
@@ -973,6 +1072,19 @@ function renderSourceForm(
         live-preview events.
     */
 
+    const accessYear = document.getElementById(createFieldId('accessDate.year'));
+    if (accessYear) {
+        const button = document.createElement('button');
+        button.type = 'button'; button.id = 'useTodayButton'; button.className = 'small-button use-today-button'; button.textContent = 'Use Today';
+        button.addEventListener('click', () => {
+            const today = new Date();
+            [['day',today.getDate()],['month',MONTH_NAMES[today.getMonth()]],['year',today.getFullYear()]].forEach(([part,value]) => {
+                document.getElementById(createFieldId('accessDate.' + part)).value = value;
+            });
+            citedSource = null; citingNotice.hidden = true; updatePreview();
+        });
+        accessYear.closest('fieldset').appendChild(button);
+    }
     attachDynamicFieldEvents();
 
 }
@@ -1287,6 +1399,23 @@ function validateSource(source) {
     );
 
 
+    if (source.type === 'website') {
+        for (const key of ['publicationDate', 'accessDate']) {
+            const date = source[key] || {};
+            const day = clean(date.day), month = clean(date.month), year = clean(date.year);
+            const label = key === 'publicationDate' ? 'publication date' : 'access date';
+            const index = monthIndex(month);
+            const validYear = /^\d{4}$/.test(year) && Number(year) >= 1000;
+            if ((day || month || year) && (!validYear || (month && (index < 0 || index > 11)) || (day && (!month || !/^\d{1,2}$/.test(day) || Number(day) < 1 || Number(day) > new Date(Number(year), index + 1, 0).getDate())))) {
+                missing.push('valid ' + label + ' (year, month and year, or full date)');
+            }
+        }
+        if (clean(source.url)) {
+            try { const url = new URL(source.url); if (!['http:', 'https:'].includes(url.protocol)) throw new Error(); }
+            catch { missing.push('valid URL beginning with https:// or http://'); }
+        }
+        if (citationStyleSelect.value === 'chicago18' && !formatWebsiteDate(source.publicationDate) && !formatWebsiteDate(source.accessDate)) missing.push('access date for an undated Chicago webpage');
+    }
     return missing;
 
 }
@@ -1618,6 +1747,7 @@ function formatMLAInText(
     page,
     allSources = []
 ) {
+    if (source.type === 'website') page = ''; 
 
     const context =
         getCitationContext(
@@ -1665,13 +1795,11 @@ function formatMLAInText(
 
 
             plain +=
-                `, ${shortTitle}`;
+                `, ${getMLATitlePlain(source, shortTitle)}`;
 
 
             html +=
-                `, <em>${escapeHTML(
-                    shortTitle
-                )}</em>`;
+                `, ${getMLATitleHTML(source, shortTitle)}`;
 
         }
 
@@ -1686,14 +1814,11 @@ function formatMLAInText(
             getShortTitle(source);
 
 
-        plain =
-            shortTitle;
+        plain = getMLATitlePlain(source, shortTitle);
 
 
         html =
-            `<em>${escapeHTML(
-                shortTitle
-            )}</em>`;
+            getMLATitleHTML(source, shortTitle);
 
     }
 
@@ -1932,6 +2057,7 @@ function formatChicagoFirstFootnote(
     source,
     page
 ) {
+    if (source.type === 'website') return formatChicagoWebsite(source,'full');
 
     const htmlParts = [];
     const plainParts = [];
@@ -2075,6 +2201,7 @@ function formatChicagoShortFootnote(
     source,
     page
 ) {
+    if (source.type === 'website') return formatChicagoWebsite(source,'short');
 
     const htmlParts = [];
     const plainParts = [];
@@ -2162,7 +2289,8 @@ const FORMATTERS = {
     mla9: {
 
         book:
-            formatMLABook
+            formatMLABook,
+        website: formatMLAWebsite
 
     },
 
@@ -2170,7 +2298,8 @@ const FORMATTERS = {
     chicago18: {
 
         book:
-            formatChicagoBookBibliography
+            formatChicagoBookBibliography,
+        website: formatChicagoWebsiteBibliography
 
     }
 
@@ -2411,6 +2540,7 @@ function getEffectiveCitationCollection(source) {
 ========================================================= */
 
 function updatePreview() {
+    document.getElementById('pageNumberPanel').hidden = getActiveCitationSource().type === 'website';
 
     const source =
         getActiveCitationSource();
@@ -2874,7 +3004,7 @@ function citeSource(id) {
     setTimeout(
         () => {
 
-            pageNumberInput.focus();
+            if (source.type === 'book') pageNumberInput.focus();
 
         },
         500
@@ -3002,6 +3132,9 @@ function getSourceDisplayName(source) {
 ========================================================= */
 
 function getSortKey(source) {
+    if (source.type === 'website' && citationStyleSelect.value === 'chicago18') {
+        return (websiteAuthor(source,true) || clean(source.publisher) || clean(source.websiteName) || clean(source.title)).toLowerCase();
+    }
 
     return (
         source.author?.last ||
